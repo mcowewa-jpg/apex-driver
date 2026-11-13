@@ -1,26 +1,20 @@
 name: Build Driver
-
 on: [push]
-
 jobs:
   build:
     runs-on: windows-latest
-
     steps:
     - uses: actions/checkout@v4
-
+    - name: Install WDK
+      run: |
+        choco install windowsdriverkit10 --version=10.0.22621.1 -y
     - name: Setup MSVC
       uses: ilammy/msvc-dev-cmd@v1
-      with:
-        arch: x64
-
     - name: Compile Driver
       run: |
+        # The WDK installs to C:\Program Files (x86)\Windows Kits\10
+        # We need to use the x64 WDK build environment
+        cmd /c ""C:\Program Files (x86)\Windows Kits\10\bin\10.0.22621.0\x64\bin\dbgeng.dll""
+        # Actually, linking against ntoskrnl requires specific libraries.
         cl.exe /c /GS- /I"C:\Program Files (x86)\Windows Kits\10\Include\10.0.22621.0\km" inteldrv.c
-        link.exe /DRIVER /SUBSYSTEM:NATIVE /OUT:inteldrv.sys inteldrv.obj ntoskrnl.lib wdmsec.lib BufferOverflowFastFailK.lib
-
-    - name: Upload Driver
-      uses: actions/upload-artifact@v4
-      with:
-        name: inteldrv
-        path: inteldrv.sys
+        link.exe /DRIVER /SUBSYSTEM:NATIVE /OUT:inteldrv.sys inteldrv.obj "C:\Program Files (x86)\Windows Kits\10\Lib\10.0.22621.0\km\x64\ntoskrnl.lib" "C:\Program Files (x86)\Windows Kits\10\Lib\10.0.22621.0\km\x64\wdmsec.lib"
