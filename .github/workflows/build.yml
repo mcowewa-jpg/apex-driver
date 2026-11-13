@@ -17,23 +17,20 @@ jobs:
     - name: Compile Driver
       shell: pwsh
       run: |
-        # Find the latest WDK version installed on the runner
         $wdkRoot = "C:\Program Files (x86)\Windows Kits\10"
-        $latestVersion = (Get-ChildItem "$wdkRoot\Include" -Directory | Sort-Object Name -Descending | Select-Object -First 1).Name
-        Write-Host "Using WDK Version: $latestVersion"
-
-        # Add WDK paths to the compiler and linker
-        $env:INCLUDE = "$wdkRoot\Include\$latestVersion\km;$wdkRoot\Include\$latestVersion\shared;$wdkRoot\Include\$latestVersion\ucrt;$env:INCLUDE"
-        $env:LIB = "$wdkRoot\Lib\$latestVersion\km\x64;$wdkRoot\Lib\$latestVersion\ucrt\x64;$env:LIB"
-
-        # Compile the C file
-        cl.exe /c /GS- /kernel inteldrv.c
-
-        # Link the object file into a .sys driver
-        # /DRIVER indicates it's a kernel driver
-        # /SUBSYSTEM:NATIVE sets the Windows Native subsystem
-        # /ENTRY:GsDriverEntry is not needed since we use DriverEntry
-        link.exe /DRIVER /SUBSYSTEM:NATIVE /OUT:inteldrv.sys inteldrv.obj
+        
+        # Find the WDK version that actually has ntifs.h
+        $v = (Get-ChildItem "$wdkRoot\Include" -Directory | Where-Object { Test-Path "$($_.FullName)\km\ntifs.h" } | Sort-Object Name -Descending | Select-Object -First 1).Name
+        Write-Host "Using WDK Version: $v"
+        
+        $inc = "$wdkRoot\Include\$v"
+        $lib = "$wdkRoot\Lib\$v"
+        
+        # Compile with explicit /I include paths
+        cl.exe /c /GS- /kernel /I "$inc\km" /I "$inc\shared" /I "$inc\ucrt" inteldrv.c
+        
+        # Link with explicit paths to ntoskrnl.lib and wdmsec.lib
+        link.exe /DRIVER /SUBSYSTEM:NATIVE /OUT:inteldrv.sys inteldrv.obj "$lib\km\x64\ntoskrnl.lib" "$lib\km\x64\wdmsec.lib"
 
     - name: Upload Driver
       uses: actions/upload-artifact@v4
