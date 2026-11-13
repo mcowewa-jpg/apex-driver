@@ -1,10 +1,11 @@
-name: Build WDM Driver
+name: Build Driver
 
 on: [push, workflow_dispatch]
 
 jobs:
   build:
-    runs-on: windows-latest
+    # We MUST use 2022, because 2025 doesn't have the WDK
+    runs-on: windows-2022
 
     steps:
     - uses: actions/checkout@v4
@@ -14,22 +15,39 @@ jobs:
       with:
         arch: x64
 
+    - name: Install WDK (If Missing)
+      shell: pwsh
+      run: |
+        # Check if WDK is missing, if so, install it
+        if (!(Test-Path "C:\Program Files (x86)\Windows Kits\10\Include\10.0.22621.0\km\ntifs.h")) {
+          Write-Host "WDK missing. Installing..."
+          choco install windowsdriverkit10 -y --no-progress
+        } else {
+          Write-Host "WDK is already installed!"
+        }
+
     - name: Compile Driver
       shell: pwsh
       run: |
         $wdkRoot = "C:\Program Files (x86)\Windows Kits\10"
         
-        # Find the WDK version that actually has ntifs.h
-        $v = (Get-ChildItem "$wdkRoot\Include" -Directory | Where-Object { Test-Path "$($_.FullName)\km\ntifs.h" } | Sort-Object Name -Descending | Select-Object -First 1).Name
+        # Find the exact version installed
+        $v = (Get-ChildItem "$wdkRoot\Include" -Directory | Where-Object { Test-Path "$($_.FullName)\km\ntifs.h" } | Select-Object -First 1).Name
+        
+        if (!$v) {
+            Write-Error "WDK headers not found even after install!"
+            exit 1
+        }
+        
         Write-Host "Using WDK Version: $v"
         
         $inc = "$wdkRoot\Include\$v"
         $lib = "$wdkRoot\Lib\$v"
         
-        # Compile with explicit /I include paths
+        # Compile with explicit paths
         cl.exe /c /GS- /kernel /I "$inc\km" /I "$inc\shared" /I "$inc\ucrt" inteldrv.c
         
-        # Link with explicit paths to ntoskrnl.lib and wdmsec.lib
+        # Link
         link.exe /DRIVER /SUBSYSTEM:NATIVE /OUT:inteldrv.sys inteldrv.obj "$lib\km\x64\ntoskrnl.lib" "$lib\km\x64\wdmsec.lib"
 
     - name: Upload Driver
