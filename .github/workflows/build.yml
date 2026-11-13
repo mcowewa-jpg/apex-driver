@@ -1,0 +1,26 @@
+name: Build Driver
+
+on: [push]
+
+jobs:
+  build:
+    runs-on: windows-latest
+
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Setup MSVC
+      uses: ilammy/msvc-dev-cmd@v1
+      with:
+        arch: x64
+
+    - name: Compile Driver
+      run: |
+        cl.exe /c /GS- /I"C:\Program Files (x86)\Windows Kits\10\Include\10.0.22621.0\km" inteldrv.c
+        link.exe /DRIVER /SUBSYSTEM:NATIVE /OUT:inteldrv.sys inteldrv.obj ntoskrnl.lib wdmsec.lib BufferOverflowFastFailK.lib
+
+    - name: Upload Driver
+      uses: actions/upload-artifact@v4
+      with:
+        name: inteldrv
+        path: inteldrv.sys
