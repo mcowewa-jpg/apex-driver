@@ -1,20 +1,42 @@
-name: Build Driver
-on: [push]
+name: Build WDM Driver
+
+on: [push, workflow_dispatch]
+
 jobs:
   build:
     runs-on: windows-latest
+
     steps:
     - uses: actions/checkout@v4
-    - name: Install WDK
-      run: |
-        choco install windowsdriverkit10 --version=10.0.22621.1 -y
+
     - name: Setup MSVC
       uses: ilammy/msvc-dev-cmd@v1
+      with:
+        arch: x64
+
     - name: Compile Driver
+      shell: pwsh
       run: |
-        # The WDK installs to C:\Program Files (x86)\Windows Kits\10
-        # We need to use the x64 WDK build environment
-        cmd /c ""C:\Program Files (x86)\Windows Kits\10\bin\10.0.22621.0\x64\bin\dbgeng.dll""
-        # Actually, linking against ntoskrnl requires specific libraries.
-        cl.exe /c /GS- /I"C:\Program Files (x86)\Windows Kits\10\Include\10.0.22621.0\km" inteldrv.c
-        link.exe /DRIVER /SUBSYSTEM:NATIVE /OUT:inteldrv.sys inteldrv.obj "C:\Program Files (x86)\Windows Kits\10\Lib\10.0.22621.0\km\x64\ntoskrnl.lib" "C:\Program Files (x86)\Windows Kits\10\Lib\10.0.22621.0\km\x64\wdmsec.lib"
+        # Find the latest WDK version installed on the runner
+        $wdkRoot = "C:\Program Files (x86)\Windows Kits\10"
+        $latestVersion = (Get-ChildItem "$wdkRoot\Include" -Directory | Sort-Object Name -Descending | Select-Object -First 1).Name
+        Write-Host "Using WDK Version: $latestVersion"
+
+        # Add WDK paths to the compiler and linker
+        $env:INCLUDE = "$wdkRoot\Include\$latestVersion\km;$wdkRoot\Include\$latestVersion\shared;$wdkRoot\Include\$latestVersion\ucrt;$env:INCLUDE"
+        $env:LIB = "$wdkRoot\Lib\$latestVersion\km\x64;$wdkRoot\Lib\$latestVersion\ucrt\x64;$env:LIB"
+
+        # Compile the C file
+        cl.exe /c /GS- /kernel inteldrv.c
+
+        # Link the object file into a .sys driver
+        # /DRIVER indicates it's a kernel driver
+        # /SUBSYSTEM:NATIVE sets the Windows Native subsystem
+        # /ENTRY:GsDriverEntry is not needed since we use DriverEntry
+        link.exe /DRIVER /SUBSYSTEM:NATIVE /OUT:inteldrv.sys inteldrv.obj
+
+    - name: Upload Driver
+      uses: actions/upload-artifact@v4
+      with:
+        name: inteldrv
+        path: inteldrv.sys
